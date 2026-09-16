@@ -1,0 +1,18 @@
+# Ambiente local
+.venv/
+__pycache__/
+*.pyc
+
+# Caminhos desta maquina (o proprio paths.py deixa fora do git de proposito)
+tools/paths.local.ini
+
+# Gerado por tools/build_vdf.py, com caminhos do Windows desta maquina
+tools/workshop_item.vdf
+
+# Backups operacionais do servidor de teste: config e lista de mods de uma
+# instancia real, nao tem nada a ver com o mod
+backups/
+
+# Paginas salvas durante pesquisa
+*.json
+!tools/*.json

@@ -1,0 +1,8 @@
+name=No Catch Fix - MP Fishing [B42.20]
+id=FishingMPFix
+author=Cyd Goncalves
+modversion=1.2.0
+versionMin=42.0.0
+poster=poster.png
+icon=icon.png
+description=Fixes the No Catch bug in Build 42 multiplayer fishing: the bait unequips in the middle of the fight and the catch turns into No Catch, with no fish, no XP, and the line worn down anyway. On a server it usually looks like only the first angler can land anything - that is the same bug. No balance changes.
