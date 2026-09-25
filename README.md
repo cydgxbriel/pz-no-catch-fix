@@ -132,8 +132,12 @@ fishing"* for someone with a fish on the line — and the safety net would go
 inert without a word.
 
 The re-arm is finite (20 times, ~2 min). A player who genuinely ignores the bite
-still loses the bait — vanilla's intent is preserved. Single player and the
-host's own bobber are untouched.
+still loses the bait — vanilla's intent is preserved. Single player is untouched
+(it never had the bug; the fix requires `isMultiplayer()`). A game hosted from
+the main menu is covered for everyone, host included: `CoopMaster.launchServer`
+starts the server as a separate JVM (`zombie.network.GameServer -coop`), the
+host joins it as a network client like any friend, and inside that process
+`IsoPlayer.isLocalPlayer()` returns `false` for everybody.
 
 ## Bite indicator
 
@@ -167,6 +171,39 @@ screen at the edge.
 
 The server sends only the transitions — the countdown runs on the client, so
 there is no per-tick network traffic.
+
+## Fishing Panel (right-click water)
+
+The panel that lists the fish you have caught has two vanilla defects in
+multiplayer, and the mod fixes both from the client
+(`42/media/lua/client/FishingMPFix_Panel.lua`):
+
+**The list empties every session.** The panel reads `fishing_catchedFish`, which
+`ISPickupFishAction:start` writes only on the client and nothing transmits. In
+multiplayer the character is saved from the **server's** copy — every call to
+`ServerPlayerDB.serverUpdateNetworkCharacter` passes the server's `IsoPlayer` —
+and the client loads that copy back on reconnect
+(`ClientPlayerDB.clientLoadNetworkPlayer`). The history is not lost, though:
+when the fish reaches the inventory the server records
+`fishing_CatchDone_<fullType>` itself (`ISPickupFishAction:PickupFishUpdate`),
+and that key is saved. The mod rebuilds the panel's table from those keys — no
+packet, nothing new on the server, and catches from before the mod reappear.
+
+**The panel floods the console.** Every fish row indexes
+`fishing_catchedFish` with no nil check (`FishWindow.lua:44`, `:63`) and caches
+`getPlayer()` once. Receiving the player's `modData` from the server runs
+`KahluaTableImpl.load`, which **wipes** the table before loading
+(`ObjectModDataPacket.parse`); with the field gone, every row errors on every
+frame — a flood rather than a crash because `AtomUI.update` runs each Lua update
+inside `pcallvoid`. After death and respawn the panel also keeps showing the
+dead character. The fix wraps the update of the panel's *info* tab: `AtomUI.update`
+runs a node's own update **before** its children's, so every frame the tab points
+each row at the current player and guarantees the table exists before any row
+reads it.
+
+If a game update moves the panel, the mod logs
+`[FishingMPFix] fishing panel layout not recognised; panel fix skipped` and stays
+out of the way.
 
 ## Installing on a server
 
@@ -246,9 +283,11 @@ network channel uses the module `"FishingMPFix"` — no name collisions.
 
 ## Clean removal
 
-**The mod writes nothing persistent.** No `modData`, no item changes, no sandbox
-vars, no files on disk. All state lives on the bobber itself, which is destroyed
-on every cast.
+**The mod writes nothing persistent of its own.** No `modData` keys of its own,
+no item changes, no sandbox vars, no files on disk. All fishing state lives on
+the bobber itself, which is destroyed on every cast. The Fishing Panel fix only
+fills vanilla's own `fishing_catchedFish` on the client, from vanilla's own
+`fishing_CatchDone_*` keys — the same table vanilla writes after every catch.
 
 Consequence: uninstalling leaves no trace, does not break saves and needs no
 wipe. The game simply returns to vanilla behaviour.
@@ -301,9 +340,11 @@ and run `on` again:
 That is why it lives outside the mod folder, and why `build_vdf.py` **refuses to
 publish** while the file is present.
 
-`INCLUDE_LOCAL` exists because in solo co-op the only angler is the host — and
-the mod ignores the host's bobber on purpose, since it does not actually have
-the bug. Without that flag, the solo test would exercise nothing.
+`INCLUDE_LOCAL` bypasses the local-player check. It was written on the premise
+that the host's bobber lives in the same process as the server; that premise is
+wrong (the menu host runs the server as a separate JVM and nobody is local
+inside it), so on a real co-op server the flag changes nothing. It is kept for
+any setup where the server and a player do share a process.
 
 ## Workshop metrics
 
@@ -350,6 +391,8 @@ this needs the id to be unique per player, which only TIS can do.
 The tests load the **real** `Bobber.lua` from the installed game and exercise
 the fuse outside the engine — including tests that reproduce the bug in vanilla
 code with two anglers and prove the relay lands the flag on the right bobber.
+The Fishing Panel tests load the **real** `FishWindow.lua` and PZAPI `Meta.lua`,
+reproduce the error flood in vanilla and prove the fix removes it.
 
 ```bash
 python -m venv .venv && .venv/bin/pip install lupa

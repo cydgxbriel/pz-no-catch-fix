@@ -188,9 +188,11 @@ local function isStillFishing(bobber)
     return ok and holding or false
 end
 
--- On a co-op host the host's own bobber gets the flag directly, without the
--- network: that one does not have the bug and must not be touched. When in
--- doubt, do not touch.
+-- A player local to THIS process gets the flag directly, without the network,
+-- and does not have the bug. On a dedicated server and on a menu-hosted co-op
+-- server (a separate JVM, which the host joins as a network client) nobody is
+-- local: IsoPlayer.isLocalPlayer() starts with `if (GameServer.server) return
+-- false`. When in doubt, do not touch.
 local function isLocallyTracked(player)
     -- In a solo test the only angler IS the host; without this there would be
     -- nothing to exercise.

@@ -41,9 +41,10 @@
 
 if isServer() then return end
 
--- Only a real network client needs this. When the game hosts the server in
--- the same process there is a single Lua bobber: the vanilla write already
--- lands on the right one, and sendClientCommand would be a detour.
+-- Only a network client needs this. In single player there is a single Lua
+-- bobber and the vanilla write already lands on it. (A game hosted from the
+-- main menu is NOT that case: the server is a separate JVM and the host joins
+-- it as a network client, so isClient() is true and the host is covered.)
 local function relayCatch()
     if not isClient() then return end
 

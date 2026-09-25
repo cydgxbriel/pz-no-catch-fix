@@ -40,7 +40,7 @@ FIELDS = {
 [b]Mod ID:[/b] {MOD_ID}
 [b]Build:[/b] 42.20+
 
-[b]Also known as:[/b] no catch bug, no catch fishing, bait disappears, fish vanishes on reel, tension disappears halfway, only the first player can fish
+[b]Also known as:[/b] no catch bug, no catch fishing, bait disappears, fish vanishes on reel, tension disappears halfway, only the first player can fish, fishing panel errors, fishing panel not updating, caught fish list resets
 
 Fixes the [b]No Catch[/b] bug in Build 42 multiplayer fishing: the bait unequips in the middle of the fight and the catch turns into No Catch, with no fish, no XP, and the line worn down anyway.
 
@@ -66,10 +66,20 @@ While fighting a fish, a small window appears just below your character, followi
 
 It exists because in vanilla both outcomes look identical: the needle drops and No catch appears, with nothing separating the fish got away from the server threw your fish out. Press F7 to toggle, rebindable under Options - Key Bindings.
 
+[h2]Fishing Panel[/h2]
+The panel you open by right-clicking water has two vanilla defects in multiplayer, and the mod fixes both on the client:
+
+[list]
+[*][b]The caught-fish list empties every session.[/b] Vanilla keeps that list only on your client, but in multiplayer your character is saved from the server copy, so it never survives a reconnect. The server does record every catch under its own key, and that one is saved; the mod rebuilds the list from it, so fish you caught before installing the mod come back too.
+[*][b]Error spam and a panel that stops updating.[/b] When the server sends your character data, the game wipes the table the panel reads, and every fish row throws an error on every frame. After dying and respawning the panel also kept showing the dead character. The mod keeps the table in place and points the panel at your current character before each frame.
+[/list]
+
+No new network traffic and nothing new written on the server.
+
 [h2]Compatibility and removal[/h2]
 The mod wraps Bobber:update instead of replacing it, so it chains with other fishing mods in any load order. If another mod replaces the function outright, the patch detects it and re-chains on top instead of silently disappearing. Verified against TwisTonFire - Better Fishing: no code conflict and no UI overlap.
 
-[b]It writes nothing persistent:[/b] no modData, no item changes, no sandbox vars, no files. All state lives on the bobber, which is destroyed on every cast. Uninstalling leaves no trace, does not break saves and needs no wipe.
+[b]It writes nothing persistent of its own:[/b] no modData keys of its own, no item changes, no sandbox vars, no files. The fishing state lives on the bobber, which is destroyed on every cast; the panel fix only fills the list vanilla itself keeps. Uninstalling leaves no trace, does not break saves and needs no wipe.
 
 [h2]What causes the bug[/h2]
 When a fish bites, the server lights a 360 tick fuse, and the client sets a flag as soon as you start reeling. The flag has to travel back, and that is where it breaks.
@@ -92,11 +102,11 @@ Behind it sits a safety net, for a client that has not updated yet or a packet t
 
 The server console names both halves as they come up, so you can confirm at a glance which one is doing the work.
 
-No balance changes. The re-arm is capped, so a player who genuinely ignores the bite still loses the bait. Single player and the host own bobber are untouched.
+No balance changes. The re-arm is capped, so a player who genuinely ignores the bite still loses the bait. Single player never had the bug and is left alone. A game hosted from the main menu is covered for everyone, host included: the game runs that server as a separate process and the host joins it like any friend.
 
 [h2]One thing that still needs the developers[/h2]
 The same collision makes the server stop every action sharing a number, not only the one being stopped. So when one angler stops fishing, another can lose their line on the server side and has to re-equip the rod to start again. That part cannot be fixed from mod code.""",
-    "changenote": "v1.2.0 - Fixes the real cause: on a server, only the first angler could land anything.\n\nReported on this page, and it was exactly right. Each client numbers its own network actions from a counter that starts at 1, inside its own process, and the server resolves them by that number alone, taking the first action in its queue that holds it. Every client counts from 1 on its own, so the catch flag of every angler was credited to whoever started fishing first and landed on their bobber. Everybody else kept the flag false until the fuse ran out: the bar drains, the fish leaves, the bait goes with it.\n\nThe mod no longer uses that route. The client now reports the reel over a channel where the server identifies the sender from the connection instead of the action number, so the flag can only reach the right bobber. The fuse re-arm stays behind it as a fallback for clients that have not updated.\n\nAlso fixed: the saved Nx counter could read one higher than the number of bites it had actually saved, because a failed attempt was counted before it was decided.\n\nNote for server owners: the mod now has a client file, and nothing changes for you. Both halves ship in this item and the game delivers them to clients automatically - still no manual install, no javaagent, no launch options.\n\nIf [FishingMPFix] catch relay is live shows up in server-console.txt, the new path is working.",
+    "changenote": "v1.3.0 - Fishing Panel fixes (right-click water).\n\nReported on this page: on a server the panel stops updating and throws lots of errors. Two vanilla defects behind it, both fixed on the client:\n\n- The caught-fish list empties every session. Vanilla keeps it only on your client, but in multiplayer your character is saved from the server copy. The server does record every catch under its own key, and the mod now rebuilds the list from it - fish caught before this update come back too.\n- Error spam: when the server sends your character data, the game wipes the table the panel reads and every fish row errors on every frame. The panel also kept showing your old character after a respawn. Both fixed.\n\nNo new network traffic, nothing new saved on the server, and the No Catch fix is unchanged.\n\nAlso corrected on this page: a game hosted from the main menu is covered for the host too - the server runs as a separate process and the host joins it like any friend.",
 }
 
 

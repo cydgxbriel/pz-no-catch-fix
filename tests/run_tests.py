@@ -949,6 +949,141 @@ def test_ui_atalho_aparece_nas_opcoes():
               f"key={nossa[0].key}")
 
 
+# ---------------------------------------------------------------------------
+# Fishing Panel (clique direito na agua) -- FishWindow.lua REAL do jogo
+# ---------------------------------------------------------------------------
+
+PANEL_LUA = HERE.parent / "42/media/lua/client/FishingMPFix_Panel.lua"
+VANILLA_FISHWINDOW = paths.game() / "media/lua/client/PZAPI/ui/organisms/FishWindow.lua"
+VANILLA_META = paths.game() / "media/lua/client/PZAPI/ui/atoms/Meta.lua"
+
+
+def new_panel_env(with_fix: bool, player_name="fisher"):
+    """Cliente MP com o painel vanilla carregado e (opcionalmente) o conserto."""
+    lua = LuaRuntime(unpack_returned_tuples=True)
+    lua.execute(f'dofile("{HERE / "pz_stubs.lua"}")')
+    g = lua.globals()
+    g.TestEnv["isClient"] = True
+    g.TestEnv["isServer"] = False
+    g.TestEnv["metaPath"] = str(VANILLA_META)
+    lua.execute(f'dofile("{HERE / "panel_stubs.lua"}")')
+    lua.execute(f'dofile("{VANILLA_FISHWINDOW}")')
+    g.CurrentPlayer = g.makePanelPlayer(player_name)
+    if with_fix:
+        lua.execute(f'dofile("{PANEL_LUA}")')
+        lua.execute("for _, fn in ipairs(Events.OnGameStart.handlers) do fn() end")
+    return lua
+
+
+def test_painel_vanilla_reproduz_a_enxurrada_de_erros():
+    """Sem o conserto: a modData do jogador chega do servidor (wipe + load) sem
+    fishing_catchedFish e cada linha de peixe erra em todo frame."""
+    lua = new_panel_env(with_fix=False)
+    g = lua.globals()
+    _, info = g.openPanel()
+    n, _ = g.frame(info)
+    check("painel vanilla: frame normal nao erra", n == 0, f"erros={n}")
+    g.CurrentPlayer.modData = lua.table_from({})       # o wipe do ObjectModDataPacket
+    n, err = g.frame(info)
+    check("painel vanilla: uma linha errando por especie de peixe",
+          n == len(g.Fishing.fishes), f"erros={n} ({err})")
+
+
+def test_painel_fix_nao_erra_depois_do_wipe():
+    lua = new_panel_env(with_fix=True)
+    g = lua.globals()
+    _, info = g.openPanel()
+    g.CurrentPlayer.modData = lua.table_from({})
+    total = sum(g.frame(info)[0] for _ in range(5))
+    check("painel fix: nenhum erro apos o wipe", total == 0, f"erros={total}")
+    check("painel fix: a tabela voltou a existir",
+          lua.eval("type(CurrentPlayer.modData.fishing_catchedFish)") == "table")
+
+
+def test_painel_fix_recupera_o_historico_do_servidor():
+    """A lista que o servidor guarda (fishing_CatchDone_*) aparece no painel,
+    inclusive peixes pescados antes de o mod existir."""
+    lua = new_panel_env(with_fix=False)
+    g = lua.globals()
+    g.CurrentPlayer.modData = lua.table_from({"fishing_CatchDone_Base.Bass": True})
+    lua.execute(f'dofile("{PANEL_LUA}")')
+    lua.execute("for _, fn in ipairs(Events.OnGameStart.handlers) do fn() end")
+    _, info = g.openPanel()
+    g.frame(info)
+    bass = g.rowOf(info, "Base.Bass").children.text.text
+    crappie = g.rowOf(info, "Base.Crappie").children.text.text
+    check("painel fix: peixe gravado pelo servidor aparece pelo nome",
+          bass == "name:Base.Bass", f"{bass}")
+    check("painel fix: peixe nunca pescado continua ---", crappie == "---", f"{crappie}")
+
+
+def test_painel_fix_pega_captura_nova_com_o_painel_aberto():
+    lua = new_panel_env(with_fix=True)
+    g = lua.globals()
+    _, info = g.openPanel()
+    g.frame(info)
+    g.CurrentPlayer.modData = lua.table_from({"fishing_CatchDone_Base.Catfish": True})
+    for _ in range(61):                                  # ate a proxima leitura (~1 s)
+        g.frame(info)
+    txt = g.rowOf(info, "Base.Catfish").children.text.text
+    check("painel fix: captura nova aparece sem reabrir", txt == "name:Base.Catfish", f"{txt}")
+
+
+def test_painel_fix_segue_o_personagem_novo_apos_morrer():
+    lua = new_panel_env(with_fix=True, player_name="morto")
+    g = lua.globals()
+    _, info = g.openPanel()
+    g.frame(info)
+    novo = g.makePanelPlayer("renascido")
+    novo.modData = lua.table_from({"fishing_CatchDone_Base.Crappie": True})
+    g.CurrentPlayer = novo
+    g.frame(info)
+    nomes = {row.player.name for row in info.children.values()
+             if lua.eval("type")(row) == "table" and row.fishType}
+    check("painel fix: todas as linhas apontam para o personagem atual",
+          nomes == {"renascido"}, f"{nomes}")
+    txt = g.rowOf(info, "Base.Crappie").children.text.text
+    check("painel fix: mostra o catalogo do personagem atual", txt == "name:Base.Crappie", f"{txt}")
+
+
+def test_painel_fix_sem_jogador_pula_o_frame():
+    """Tela de morte / carregamento: getPlayer() nil nao pode virar erro."""
+    lua = new_panel_env(with_fix=True)
+    g = lua.globals()
+    _, info = g.openPanel()
+    g.CurrentPlayer = None
+    ok = lua.eval("function(info) return (pcall(info.update, info)) end")(info)
+    check("painel fix: sem jogador, o update do info nao erra", ok)
+
+
+def test_painel_fix_desliga_sozinho_se_o_layout_mudar():
+    """Se um update do jogo mover o painel, o mod avisa e sai do caminho."""
+    lua = new_panel_env(with_fix=False)
+    g = lua.globals()
+    g.PZAPI.UI.FishWindow.children.body = None
+    lua.execute(f'dofile("{PANEL_LUA}")')
+    check("painel fix: layout desconhecido nao aplica e nao quebra",
+          g.FishingMPFixPanel.templatePatched is False)
+
+
+def test_painel_fix_nao_empilha_no_reload():
+    lua = new_panel_env(with_fix=True)
+    g = lua.globals()
+    lua.execute("_antes = PZAPI.UI.FishWindow.children.body.children.tabPanel.children.info.update")
+    g.FishingMPFixPanel.templatePatched = False
+    lua.execute(f'dofile("{PANEL_LUA}")')
+    igual = lua.eval("_antes == PZAPI.UI.FishWindow.children.body.children.tabPanel.children.info.update")
+    check("painel fix: recarregar nao embrulha de novo", igual is True)
+
+
+def test_painel_fix_nao_carrega_no_servidor():
+    lua = LuaRuntime(unpack_returned_tuples=True)
+    lua.execute(f'dofile("{HERE / "pz_stubs.lua"}")')
+    lua.execute(f'dofile("{PANEL_LUA}")')
+    check("painel fix: inerte no processo do servidor",
+          lua.globals().FishingMPFixPanel is None)
+
+
 TESTS = [
     test_vanilla_reproduz_o_bug,
     test_fix_mantem_isca_com_jogador_pescando,
@@ -987,6 +1122,15 @@ TESTS = [
     test_ui_some_quando_o_jogador_para_de_pescar,
     test_ui_nao_some_no_meio_da_fisgada,
     test_ui_atalho_aparece_nas_opcoes,
+    test_painel_vanilla_reproduz_a_enxurrada_de_erros,
+    test_painel_fix_nao_erra_depois_do_wipe,
+    test_painel_fix_recupera_o_historico_do_servidor,
+    test_painel_fix_pega_captura_nova_com_o_painel_aberto,
+    test_painel_fix_segue_o_personagem_novo_apos_morrer,
+    test_painel_fix_sem_jogador_pula_o_frame,
+    test_painel_fix_desliga_sozinho_se_o_layout_mudar,
+    test_painel_fix_nao_empilha_no_reload,
+    test_painel_fix_nao_carrega_no_servidor,
 ]
 
 if __name__ == "__main__":
