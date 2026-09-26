@@ -928,6 +928,63 @@ def test_ui_nao_some_no_meio_da_fisgada():
           "o painel sumiu com a fisgada ainda ativa")
 
 
+def hud_visivel(lua):
+    return bool(lua.globals().LastUI.javaObject.visible)
+
+
+def hud_key(lua, key=65):
+    """Simula uma tecla apertada (65 = F7, o padrao)."""
+    for i in range(1, len(lua.globals().Events.OnKeyPressed.handlers) + 1):
+        lua.globals().Events.OnKeyPressed.handlers[i](key)
+
+
+def test_ui_painel_vazio_nao_fica_visivel():
+    """Painel visivel sem nada desenhado bloqueia o mouse de quem esta embaixo.
+
+    Para elemento de topo, UIElement.isPointOver (Java) devolve false se
+    QUALQUER elemento visivel acima dele cobre o ponto -- e o
+    consumeMouseEvents so e consultado para irmaos com pai, nao para topo.
+    Entao setConsumeMouseEvents(false) nao resolve: a unica saida e o painel
+    estar invisivel quando nao ha o que mostrar. No inicio do jogo ele fica
+    em (0,0), em cima dos icones de item equipado; depois de pescar, fica no
+    pe do personagem. Relatado na Oficina com o diagnostico certo.
+    """
+    lua = new_ui_env()
+    g = lua.globals()
+
+    check("ui: o painel nasce escondido", not hud_visivel(lua),
+          "visivel antes de qualquer fisgada")
+
+    hud_send(lua, "hooked", fuse=360)
+    check("ui: aparece quando o peixe morde", hud_visivel(lua),
+          "escondido com a fisgada ativa")
+
+    hud_send(lua, "lost", fuse=0)
+    hud_tick(lua, n=200)       # passa o fade inteiro
+    check("ui: volta a esconder quando o fade termina", not hud_visivel(lua),
+          "continua visivel depois do fade")
+
+    hud_send(lua, "rearmed", fuse=360, rearms=1)
+    g.setPlayerFishing(False)  # largou a vara: o fim vem do cliente
+    hud_tick(lua)
+    check("ui: esconde quando a pescaria acaba sem aviso do servidor",
+          not hud_visivel(lua), "visivel depois de largar a vara")
+
+
+def test_ui_atalho_esconde_e_mostra_o_painel():
+    """Desligar no F7 tem que esconder o elemento, nao so parar de desenhar."""
+    lua = new_ui_env()
+    hud_send(lua, "hooked", fuse=360)
+
+    hud_key(lua)
+    check("ui: F7 desligando esconde o painel", not hud_visivel(lua),
+          "visivel com o indicador desligado")
+
+    hud_key(lua)
+    check("ui: F7 religando no meio da fisgada mostra de novo", hud_visivel(lua),
+          "escondido com o indicador ligado e fisgada ativa")
+
+
 def test_ui_atalho_aparece_nas_opcoes():
     """A tela de Key Bindings e montada a partir da tabela global keyBinding.
     Chamar getCore():addKeyBinding sozinho registra a tecla mas nao a mostra
@@ -1122,6 +1179,8 @@ TESTS = [
     test_ui_some_quando_o_jogador_para_de_pescar,
     test_ui_nao_some_no_meio_da_fisgada,
     test_ui_atalho_aparece_nas_opcoes,
+    test_ui_painel_vazio_nao_fica_visivel,
+    test_ui_atalho_esconde_e_mostra_o_painel,
     test_painel_vanilla_reproduz_a_enxurrada_de_erros,
     test_painel_fix_nao_erra_depois_do_wipe,
     test_painel_fix_recupera_o_historico_do_servidor,

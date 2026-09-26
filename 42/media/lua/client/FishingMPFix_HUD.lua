@@ -245,6 +245,29 @@ function HUD:render()
     end
 end
 
+-- An element that is visible but draws nothing still blocks the mouse. For a
+-- top-level element, UIElement.isPointOver (Java) answers false whenever any
+-- visible element above it covers the point, and consumeMouseEvents is only
+-- consulted for children, never for top-level elements - so
+-- setConsumeMouseEvents(false) alone does not help. An empty box sat over the
+-- equipped-item icons at (0,0) after login, and at the player's feet after
+-- every fight, killing hover and clicks there. Reported on the Workshop.
+--
+-- The panel is therefore visible only while it has something to draw. This
+-- cannot live in prerender/render: the engine does not call them on an
+-- invisible element, so the panel could hide itself but never come back.
+-- Every place that changes shouldDraw() calls this instead.
+local shown = false
+
+local function syncVisibility()
+    if hud == nil then return end
+    local want = hud:shouldDraw()
+    if want ~= shown then
+        shown = want
+        hud:setVisible(want)
+    end
+end
+
 -- ---------------------------------------------------------------------------
 -- State
 -- ---------------------------------------------------------------------------
@@ -282,6 +305,8 @@ local function onServerCommand(module, command, args)
         state.fuse = 0
         setPhase("Bite lost", COLOR.danger)
     end
+
+    syncVisibility()
 end
 
 -- The panel's lifetime cannot depend on the server's closing message. That
@@ -323,6 +348,7 @@ local function onTick()
     -- Fishing ended without the server getting a chance to say so.
     if state.active and not stillFishing() then
         endFight()
+        syncVisibility()
         return
     end
 
@@ -338,6 +364,10 @@ local function onTick()
         state.pops[i].life = state.pops[i].life - step
         if state.pops[i].life <= 0 then table.remove(state.pops, i) end
     end
+
+    -- The fade and the last "+1" just ran out: hide before the early return
+    -- above starts skipping this handler.
+    syncVisibility()
 end
 
 -- Resolved once at boot: querying the binding on every key press would be a
@@ -347,6 +377,7 @@ local boundKey = DEFAULT_KEY
 local function onKeyPressed(key)
     if key == boundKey then
         state.enabled = not state.enabled
+        syncVisibility()
         local player = getPlayer()
         if player then
             player:Say(state.enabled and "Bite indicator: on"
@@ -366,10 +397,13 @@ local function onGameStart()
     hud:initialise()
     hud:instantiate()
     -- The box sits glued to the character, which is exactly where fishing
-    -- clicks happen: it must never swallow one.
+    -- clicks happen: it must never swallow one. This covers the click itself
+    -- while the box is on screen; hiding it when empty (syncVisibility) is
+    -- what keeps it from blocking hover the rest of the time.
     pcall(function() hud.javaObject:setConsumeMouseEvents(false) end)
     hud:addToUIManager()
-    hud:setVisible(true)
+    hud:setVisible(false)
+    shown = false
 
     measure()   -- first measurement, with the TextManager already available
 
